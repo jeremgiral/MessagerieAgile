@@ -1,0 +1,190 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('epsimessagerie:server');
+// var https = require('https');
+var http = require('http');
+var fs = require('fs');
+var Conversation = require('../models/user').Conversation;
+var Message = require('../models/user').Message;
+var User = require('../models/user').User;
+var mongoose = require('mongoose');
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+// var server = https.createServer({key: fs.readFileSync('key.pem'),cert: fs.readFileSync('cert.pem')},app);
+var server = http.createServer(app);
+var io = require('socket.io')(server);
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+var io = require('socket.io')(server);
+
+var users = []; 
+io.on('connection', function(socket){
+  console.log('an user connected');
+  socket.on('user',function(user){
+    if(users.map(function(e) { return e.mongoId.toString(); }).indexOf(mongoose.Types.ObjectId(user).toString())== -1){
+      User.findOne(mongoose.Types.ObjectId(user),function(err,u){
+        if(err){
+          console.log(err)
+        }
+        users.push({id : socket.id,nom : u.nom,prenom : u.prenom,mongoId : u._id});
+        len = users.length;
+        len--;
+        io.emit('userList',users,users[len].id);
+      })
+    }else{
+      io.emit('userList',users,users[users.map(function(e) { return e.mongoId.toString(); }).indexOf(mongoose.Types.ObjectId(user).toString())].id);
+    }
+  });
+
+
+
+
+  socket.on('newMessage', function(data){
+    Conversation.findOne(mongoose.Types.ObjectId(data.id),function(err,conv){
+      if(err){
+        console.log(err);
+      }
+      conv.dernierMessage = data.contenu;
+      conv.dateDernierMessage = new Date();
+      newMessage = new Message();
+      newMessage.contenu=data.contenu;
+      newMessage.auteur=data.auteur;      
+      conv.nbNouveauMessage++;
+      conv.nouveauMessage = true;
+      conv.messages.push(newMessage)
+      conv.save(function(err,conver){
+        if(err){
+          console.log(err);
+        }
+        Conversation.find({_id:conver._id}).populate({path: 'messages.auteur',match: { _id: { $ne:mongoose.Types.ObjectId(data.myid)}}}).exec(function (err, conversations) {
+          io.emit('newMessage', conversations[0]);
+        });
+      });
+    });
+  });
+
+
+  socket.on('newConversation',function(data){
+    Conversation.find({users:{ $all: [mongoose.Types.ObjectId(data.myid),mongoose.Types.ObjectId(data.id)] }}).populate({path: 'users',match: { _id: { $ne:data.myid}}}).exec(function(err,convs){
+      if(convs.length==0){
+        newConv = new Conversation()
+        newConv.users=[mongoose.Types.ObjectId(data.myid),mongoose.Types.ObjectId(data.id)]
+        newConv.save(function(err,conv){
+          if(err){
+            console.log(err);
+          }
+          Conversation.find({_id:conv._id}).populate({path: 'users',match: { _id: { $ne:mongoose.Types.ObjectId(data.myid)}}}).exec(function (err, conversations) {
+            if(err){
+              console.log(err)
+              console.log('Erreur Conversation !');
+            }
+            io.emit('newConversation',conversations[0])
+          });
+        });
+      } else {
+        Conversation.find({_id:convs[0]._id}).populate({path: 'users',match: { _id: { $ne:mongoose.Types.ObjectId(data.myid)}}}).exec(function (err, conversations) {
+          if(err){
+            console.log(err)
+            console.log('Erreur Conversation !');
+          }
+          io.emit('newConversation',conversations[0])
+        });
+      }
+    });
+  });
+
+
+  socket.on('openConversation',function(data){
+    console.log(data);
+    
+    Conversation.findOne(mongoose.Types.ObjectId(data.id),function(err,conv){
+      if(err){
+        console.log(err);
+      }
+      conv.nbNouveauMessage=0;
+      conv.nouveauMessage = false;
+      Conversation.find({_id:conv._id}).populate({path: 'users',match: { _id: { $ne:mongoose.Types.ObjectId(data.myid)}}}).populate('messages.auteur').exec(function (err, conversations) {
+        if(err){
+          console.log(err);
+          console.log('Erreur Conversation !');
+        }
+        console.log(socket.id);
+        
+        socket.emit('openConversation',conversations[0]);
+      });
+    });
+  });
+  socket.on('disconnect', function(){
+    console.log('user disconnected');
+  });
+});
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}

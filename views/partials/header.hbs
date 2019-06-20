@@ -1,0 +1,20 @@
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">MessagerieAgile  <i class="fa fa-home" aria-hidden="true"></i></a>
+    <ul class="navbar-nav navbar-right">
+      <li class="nav-item dropdown">
+        <a href="#" class="dropdown-toggle navbar-brand" data-toggle="dropdown" role="button" ><i class="fa fa-user-circle" aria-hidden="true"></i>  Compte Utilisateur <span></span></a>
+        <ul class="dropdown-menu">
+          {{# if login}}
+          <li><a href="/user/profile">Compte</a></li>
+          <li role="separator" class="divider"></li>
+          <li><a href="/user/logout">Déconnexion</a></li>
+          {{ else }}
+          <li><a href="/user/signup">S'enregistrer</a></li>
+          <li><a href="/user/signin">Se connecter</a></li>
+          {{/ if}}
+        </ul>
+      </li>
+    </ul>
+  </div><!-- /.container-fluid -->
+</nav>
